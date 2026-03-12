@@ -1,0 +1,21 @@
+{
+  "zero_optimization": {
+    "stage": 2,
+    "allgather_partitions": true,
+    "allgather_bucket_size": 2e8,
+    "reduce_scatter": true,
+    "reduce_bucket_size": 2e8,
+    "overlap_comm": true,
+    "contiguous_gradients": true,
+    "ignore_unused_parameters": true
+  },
+  "bf16": {
+    "enabled": true
+  },
+  "gradient_clipping": 1.0,
+  "train_micro_batch_size_per_gpu": 1,
+  "wall_clock_breakdown": false,
+  "checkpoint": {
+    "save_optimizer_states": false
+  }
+}

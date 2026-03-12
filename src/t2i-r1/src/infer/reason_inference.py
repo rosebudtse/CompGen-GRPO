@@ -25,16 +25,18 @@ def seed_all(seed):
 seed_all(42)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_path", type=str, required=True, help="Path to the model directory")
+parser.add_argument("--model_path", type=str , help="Path to the model directory")
 parser.add_argument("--data_path", type=str, required=True, help="Path to the data directory")
-parser.add_argument("--reasoning_prompt_path", type=str, default="../../../data/prompt/reasoning_prompt.txt")
-parser.add_argument("--save_dir", type=str, default='', help="Path to the data directory")
+parser.add_argument("--reasoning_prompt_path", type=str, default="../../../../data/prompt/reasoning_prompt.txt")
+# parser.add_argument("--reasoning_prompt_path", type=str, default="./prompt.txt")
+parser.add_argument("--save_dir", type=str, default='./images', help="Path to the data directory")
 parser.add_argument("--num_generation", type=int, default=4)
 
 args = parser.parse_args()
 
 # specify the path to the model
-model_path = args.model_path
+# model_path = args.model_path
+model_path = "deepseek-ai/Janus-Pro-1B"
 vl_chat_processor: VLChatProcessor = VLChatProcessor.from_pretrained(model_path)
 tokenizer = vl_chat_processor.tokenizer
 

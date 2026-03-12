@@ -16,7 +16,8 @@ class HPSv2:
     def load_to_device(self, load_device):
         self.model, self.preprocess_train, self.preprocess_val = create_model_and_transforms(
                     'ViT-H-14',
-                    pretrained='laion2b_s32b_b79k',
+                    # pretrained='laion2b_s32b_b79k',
+                    pretrained=None,
                     precision='amp',
                     device=load_device,
                     jit=False,
@@ -42,6 +43,7 @@ class HPSv2:
         self.tokenizer = get_tokenizer('ViT-H-14')
         self.model = self.model.to(load_device)
         self.model.eval()
+        self.model = self.model.half()
     
     def __call__(self, prompts, images, **kwargs):
         # image_list is a list of PIL image

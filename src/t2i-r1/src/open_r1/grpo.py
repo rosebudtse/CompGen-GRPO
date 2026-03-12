@@ -44,6 +44,7 @@ class GRPOConfig(GRPOConfig):
     gdino_ckpt_path: str = field(default=None, metadata={"help": "The path to the gdino checkpoint"})
     gdino_config_path: str = field(default=None, metadata={"help": "The path to the gdino config"})
     orm_ckpt_path: str = field(default=None, metadata={"help": "The path to the orm checkpoint"})
+    vlm_ckpt_path: str = field(default=None, metadata={"help": "Path to VLM reward model (Qwen3-VL-2B-Instruct)"})  # ← 新增
     
 @dataclass
 class GRPOScriptArguments(ScriptArguments):
@@ -89,6 +90,9 @@ reward_funcs_registry = {
     'gdino': 'gdino',
     'orm': 'orm',
     'unify': 'unify',
+    'vlm_attr': 'vlm_attr',             # ← 新增
+    'vlm_orm': 'vlm_orm',               # ← 新增
+    'gdino_enhanced': 'gdino_enhanced', # ← 新增
 }
 
 
@@ -116,6 +120,18 @@ def main(script_args, training_args, model_args):
             
     # Format into conversation
     def make_conversation(example):
+        TASK_TYPE_MAP = {
+        'color':    'attribute',
+        'texture':  'attribute',
+        'shape':    'attribute',
+        'complex':  'non-spatial',
+        'non':      'non-spatial',
+        'object':   'non-spatial',
+        'spatial':  'spatial',
+        'numeracy': 'numeracy',
+        }
+        task_type = TASK_TYPE_MAP.get(example['task_type'], 'non-spatial')
+        
         # make detection prompt
         if 'nouns' in example and example['nouns'] is not None:
             det_text_prompt, det_token_spans = make_detection_prompt(example['nouns'])
@@ -141,6 +157,10 @@ def main(script_args, training_args, model_args):
             'raw_prompt': example["prompt"],
             'det_prompt': det_prompt_dict,
             'task_type': example['task_type'],
+            'nouns': example.get('nouns') or [],
+            'attr_nouns': example.get('attr_nouns') or [],
+            'spatial_info': example.get('spatial_info') or {},
+            'numeracy_info': example.get('numeracy_info') or [],
         }
 
     def make_conversation_image(example):
@@ -190,8 +210,10 @@ def main(script_args, training_args, model_args):
     )
 
     # Train and push the model to the Hub
-    trainer.train()
+    # trainer.train()
+    trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
 
+    
     # Save and push to hub
     trainer.save_model(training_args.output_dir)
     if training_args.push_to_hub:
