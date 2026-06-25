@@ -1,0 +1,4 @@
+model,setting,color,shape,texture,spatial,non_spatial,complex,average
+Janus-Pro-1B,Baseline,0.3414,0.2039,0.2774,0.0735,0.2621,0.2335,0.2320
+Janus-Pro-1B,CompGen-GRPO-Full,0.7834,0.5090,0.6756,0.2976,0.3044,0.3776,0.4913
+Janus-Pro-7B,T2I-R1-Reported,0.8130,0.5852,0.7243,0.3378,0.3090,0.3993,0.5114
