@@ -1,8 +1,8 @@
 # CompGen-GRPO: 
 
-**Multi-Reward GRPO Framework for Compositional Text-to-Image Generation**
+**Multi-Reward Extension of T2I-R1 for Compositional Text-to-Image Generation**
 
-A reinforcement learning framework for compositional text-to-image generation, built on [T2I-R1](https://github.com/CaraJ7/T2I-R1) with an enhanced four-dimensional reward system. We train **Janus-Pro-1B** via Bi-CoT-GRPO and achieve **96.1% of T2I-R1's 7B performance using only 1B parameters**.
+A reinforcement learning project for compositional text-to-image generation, built on [T2I-R1](https://github.com/CaraJ7/T2I-R1) with an enhanced multi-reward system. We adapt **Janus-Pro-1B** to the Bi-CoT-GRPO training pipeline and reach **96.1% of the reported T2I-R1 Janus-Pro-7B average score on T2I-CompBench** using a 1B model.
 
 ---
 
@@ -19,7 +19,7 @@ A reinforcement learning framework for compositional text-to-image generation, b
 | **Average** | 0.2320 | **0.4913** | 0.5114 |
 
 - ✅ **+111.8%** average improvement over the 1B baseline
-- ✅ **96.1%** of T2I-R1 7B performance with only 1/7 the parameters
+- ✅ **96.1%** of the reported T2I-R1 Janus-Pro-7B T2I-CompBench average score
 - ✅ Non-spatial score (0.3044) nearly matches T2I-R1 7B (0.3090)
 
 ---
@@ -40,11 +40,11 @@ Janus-Pro-1B
     └── Bi-CoT-GRPO Training
             ├── Thinking CoT (compositional reasoning)
             ├── Drawing CoT (token-level generation)
-            └── Four-Dimensional Reward
+            └── Multi-Reward Suite
                     ├── HPS v2.1       (aesthetic quality)
-                    ├── GroundingDINO  (spatial accuracy)
-                    ├── Qwen3-VL-2B   (semantic alignment)
-                    └── ORM            (format correctness)
+                    ├── GDinoEnhanced  (object grounding / spatial / numeracy)
+                    ├── VLMAttr        (attribute-object binding)
+                    └── VLMOrm         (holistic semantic alignment)
 ```
 
 ---
@@ -53,17 +53,26 @@ Janus-Pro-1B
 
 ```
 CompGen-GRPO/
+├── archive/                              # legacy code and local artifacts
+│   ├── legacy_dependencies/LLaVA-NeXT/    # legacy LLaVA ORM dependency
+│   ├── legacy_rewards/                    # original GDino / GIT / ORM rewards
+│   ├── legacy_scripts/                    # old launch/debug scripts
+│   ├── run_artifacts/                     # local training logs / TensorBoard events
+│   └── third_party_extras/                # unused third-party demos/assets
 ├── data/
 │   ├── geneval_and_t2i_data_final.json   # training data
 │   └── prompt/reasoning_prompt.txt
+├── docs/                                  # project notes, results, claim audit
 ├── eval_results/                          # T2I-CompBench scores (json)
 │   ├── baseline/
 │   └── finetuned/
+├── results/                               # summarized result tables
 ├── src/
-│   ├── scripts/
-│   │   ├── run_grpo.sh                   # GRPO training launcher
-│   │   └── run_eval.sh                   # T2I-CompBench evaluation launcher
+│   ├── requirements.txt
 │   └── t2i-r1/src/
+│       ├── run_train.sh                  # main GRPO training launcher
+│       ├── run_eval.sh                   # T2I-CompBench evaluation launcher
+│       ├── generate_all_eval.py          # batch generation for all categories
 │       ├── open_r1/
 │       │   ├── grpo.py                   # GRPO main logic (modified)
 │       │   └── trainer/grpo_trainer.py   # Trainer (modified)
@@ -71,10 +80,8 @@ CompGen-GRPO/
 │       │   ├── reward_hps.py             # HPS aesthetic reward
 │       │   ├── reward_gdino_enhanced.py  # Enhanced GroundingDINO reward ⭐
 │       │   ├── reward_vlm.py             # Qwen3-VL semantic reward ⭐
-│       │   ├── reward_gdino.py           # Original GDino reward
-│       │   └── reward_orm.py             # Format reward
-│       ├── generate_for_eval.py          # Single-model image generation
-│       ├── generate_all_eval.py          # Batch generation for all categories
+│       │   └── GroundingDINO/            # vendored GDino runtime dependency
+│       ├── janus/                        # vendored Janus runtime dependency
 │       └── infer/reason_inference.py     # Inference script
 ├── figs/                                 # Architecture figures
 └── README.md
@@ -130,10 +137,10 @@ python src/t2i-r1/src/generate_all_eval.py
 
 ```bash
 # Evaluate all models and all tasks
-bash src/scripts/run_eval.sh --model both --task all
+bash src/t2i-r1/src/run_eval.sh --model both --task all
 
 # Evaluate finetuned model on spatial only
-bash src/scripts/run_eval.sh --model finetuned --task spatial
+bash src/t2i-r1/src/run_eval.sh --model finetuned --task spatial
 ```
 
 The script prints a formatted results table at the end comparing baseline vs. finetuned across all categories.
@@ -145,9 +152,31 @@ The script prints a formatted results table at the end comparing baseline vs. fi
 | Reward | Model | Measures |
 |---|---|---|
 | HPS | HPS v2.1 | Aesthetic quality / human preference |
-| GroundingDINO (enhanced) | SwinT-OGC | Object detection & spatial relation accuracy |
-| VLM | Qwen3-VL-2B-Instruct | Fine-grained semantic alignment |
-| ORM | Rule-based | Output format correctness |
+| GDinoEnhanced | GroundingDINO SwinT-OGC | Object existence, soft spatial relation, soft numeracy |
+| VLMAttr | Qwen3-VL-2B-Instruct | Fine-grained attribute-object binding |
+| VLMOrm | Qwen3-VL-2B-Instruct | Holistic prompt-image semantic alignment |
+
+Legacy GIT, original GDino, and LLaVA ORM rewards are kept under `archive/legacy_rewards/` and `archive/legacy_dependencies/` for reference or future ablation, but they are not enabled by the main training script.
+
+---
+
+## 🌿 Advanced Branch Workflow
+
+This branch is intended for further exploration of CompGen-GRPO, including reward ablation, reward reliability analysis, and structured constraint-level rewards.
+
+```bash
+# Check local changes
+git status
+
+# Stage and commit the cleaned repository structure
+git add .
+git commit -m "Clean up project structure for advanced exploration"
+
+# Push this new branch to GitHub
+git push -u origin advanced
+```
+
+Pushing `advanced` creates or updates the remote `advanced` branch. It does not change `main` unless this branch is later merged into `main`.
 
 ---
 
