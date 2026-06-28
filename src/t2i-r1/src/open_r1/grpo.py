@@ -39,6 +39,7 @@ class GRPOConfig(GRPOConfig):
     img_size: int = field(default=384, metadata={"help": "The size of the image to generate"})
     patch_size: int = field(default=16, metadata={"help": "The patch size of the image to generate"})
     max_textcot_length: int = field(default=None, metadata={"help": "The maximum length of the text cot"})
+    max_prompt_length: int = field(default=256, metadata={"help": "Max prompt length (read by trainer; trl 5.x removed it from GRPOConfig)"})
     hps_ckpt_path: str = field(default=None, metadata={"help": "The path to the hps checkpoint"})
     git_ckpt_path: str = field(default=None, metadata={"help": "The path to the git checkpoint"})
     gdino_ckpt_path: str = field(default=None, metadata={"help": "The path to the gdino checkpoint"})

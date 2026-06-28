@@ -97,7 +97,8 @@ class JanusT2IR1Trainer(Trainer):
         if isinstance(model, str):
             model_id = model
             model = AutoModelForCausalLM.from_pretrained(
-                model_id, trust_remote_code=True, torch_dtype=torch.bfloat16
+                model_id, trust_remote_code=True, torch_dtype=torch.bfloat16,
+                **model_init_kwargs,
             )
         else:
             model_id = model.config._name_or_path
@@ -107,7 +108,9 @@ class JanusT2IR1Trainer(Trainer):
                     "This argument can only be used when the `model` argument is a string."
                 )
 
-        model.language_model.config._attn_implementation == "flash_attention_2"
+        # 把 attn_implementation 同步到 language_model（Janus 的 vendored LlamaForCausalLM 在
+        # __init__ 时已构造完，from_pretrained 的 attn_implementation 不会自动透传到这里）
+        model.language_model.config._attn_implementation = attn_implementation
         # freeze all vision encoders
         for name, param in model.named_parameters():
             if name.startswith("vision_model") or name.startswith("aligner") or name.startswith("gen"):

@@ -1,3 +1,5 @@
+.venv/
+
 src/t2i-r1/reward_weight/
 *.pt
 *.pth

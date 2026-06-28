@@ -19,6 +19,7 @@
 
 import torch
 from attrdict import AttrDict
+from dataclasses import field
 from einops import rearrange
 from transformers import (
     AutoConfig,
@@ -73,7 +74,7 @@ def model_name_to_cls(cls_name):
 class VisionConfig(PretrainedConfig):
     model_type = "vision"
     cls: str = ""
-    params: AttrDict = {}
+    params: AttrDict = field(default_factory=AttrDict)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -88,7 +89,7 @@ class VisionConfig(PretrainedConfig):
 class AlignerConfig(PretrainedConfig):
     model_type = "aligner"
     cls: str = ""
-    params: AttrDict = {}
+    params: AttrDict = field(default_factory=AttrDict)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -103,7 +104,7 @@ class AlignerConfig(PretrainedConfig):
 class GenVisionConfig(PretrainedConfig):
     model_type = "gen_vision"
     cls: str = ""
-    params: AttrDict = {}
+    params: AttrDict = field(default_factory=AttrDict)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -118,7 +119,7 @@ class GenVisionConfig(PretrainedConfig):
 class GenAlignerConfig(PretrainedConfig):
     model_type = "gen_aligner"
     cls: str = ""
-    params: AttrDict = {}
+    params: AttrDict = field(default_factory=AttrDict)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -133,7 +134,7 @@ class GenAlignerConfig(PretrainedConfig):
 class GenHeadConfig(PretrainedConfig):
     model_type = "gen_head"
     cls: str = ""
-    params: AttrDict = {}
+    params: AttrDict = field(default_factory=AttrDict)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -185,6 +186,12 @@ class MultiModalityPreTrainedModel(PreTrainedModel):
     base_model_prefix = "multi_modality"
     _no_split_modules = []
     _skip_keys_device_placement = "past_key_values"
+    # Wrapper has no attention itself; all attention is delegated to inner LlamaForCausalLM,
+    # which supports both flash_attention_2 and sdpa. Declare support so transformers 5.x
+    # doesn't reject `--attn_implementation flash_attention_2` at the outer class.
+    _supports_flash_attn = True
+    _supports_flash_attn_2 = True
+    _supports_sdpa = True
 
 
 class MultiModalityCausalLM(MultiModalityPreTrainedModel):
@@ -226,6 +233,10 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         for key, value in language_config.__dict__.items():
             if key not in self.config.__dict__:
                 setattr(self.config, key, value)
+
+        # transformers 5.x relies on `post_init()` to populate composite-model
+        # attributes such as `all_tied_weights_keys`, `_tp_plan`, etc.
+        self.post_init()
 
     def prepare_inputs_embeds(
         self,
