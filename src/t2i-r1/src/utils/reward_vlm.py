@@ -18,7 +18,7 @@ import torch
 import numpy as np
 from PIL import Image
 from typing import List, Optional
-from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 
 
 
@@ -45,18 +45,11 @@ class _Qwen3VLBase:
             print(f"[VLM Reward] Reusing shared Qwen3-VL-2B instance.")
             return
 
-        print(f"[VLM Reward] Loading Qwen3-VL-2B (4-bit) from: {self.ckpt_path}")
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-        )
+        print(f"[VLM Reward] Loading Qwen3-VL-2B (bf16) from: {self.ckpt_path}")
         processor = AutoProcessor.from_pretrained(self.ckpt_path)
         model = Qwen3VLForConditionalGeneration.from_pretrained(
             self.ckpt_path,
-            # dtype=torch.bfloat16,
-            quantization_config=bnb_config,
+            dtype=torch.bfloat16,
             device_map=load_device,
         ).eval()
 
@@ -70,7 +63,7 @@ class _Qwen3VLBase:
 
         self.model = model
         self.processor = processor
-        print(f"[VLM Reward] Loaded (4-bit). Memory: "
+        print(f"[VLM Reward] Loaded (bf16). Memory: "
               f"{torch.cuda.memory_allocated() / 1e9:.2f} GB")
 
     def _vqa(self, image: Image.Image, question: str,
@@ -308,7 +301,5 @@ class VLMOrm(_Qwen3VLBase):
         if nums:
             score = int(nums[0])
             score = max(0, min(10, score))   # 裁剪到合法范围
-            # 在 _parse_score 里临时加
-            print(f"  [ORM raw] '{answer}' -> {score}")
             return score / 10.0
         return 0.5   # fallback

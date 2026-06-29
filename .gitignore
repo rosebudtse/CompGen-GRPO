@@ -8,6 +8,7 @@ src/t2i-r1/reward_weight/
 
 eval_results/*/*/samples/
 
+src/t2i-r1/src/outputs/
 src/t2i-r1/src/outputs/debug_run/
 src/t2i-r1/src/outputs/train_main/checkpoint-*/
 src/t2i-r1/src/outputs/train_main/config.json
@@ -19,6 +20,7 @@ src/t2i-r1/src/outputs/train_main/tokenizer*.json
 src/t2i-r1/src/outputs/train_main/training_args.bin
 src/t2i-r1/src/outputs/train_main/train_log*.txt
 
+src/t2i-r1/src/wandb
 
 **/.ipynb_checkpoints/
 

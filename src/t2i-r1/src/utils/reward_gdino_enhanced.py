@@ -343,8 +343,12 @@ class GDinoEnhanced:
                 continue
 
             # NMS 去重
-            det_boxes_t  = torch.stack(det_boxes).to(self.device)
-            det_scores_t = torch.stack(det_scores).to(self.device)
+            # byted-torch 的 torchvision 只编了 CPU NMS 内核（无 CUDA kernel），
+            # 直接在 GPU 张量上调会抛 "Could not run 'torchvision::nms' with arguments
+            # from the 'CUDA' backend"。NMS 本身只在 ≤几十个 box 上跑，CPU 极快，
+            # 这里强制走 CPU 然后丢回 device。
+            det_boxes_t  = torch.stack(det_boxes).cpu()
+            det_scores_t = torch.stack(det_scores).cpu()
             keep         = nms(det_boxes_t, det_scores_t, iou_threshold=0.5)
             detected_count = len(keep)
 

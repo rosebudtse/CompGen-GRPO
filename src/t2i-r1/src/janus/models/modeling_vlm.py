@@ -192,6 +192,10 @@ class MultiModalityPreTrainedModel(PreTrainedModel):
     _supports_flash_attn = True
     _supports_flash_attn_2 = True
     _supports_sdpa = True
+    # The inner LlamaForCausalLM supports gradient checkpointing; declare True at the
+    # wrapper level so trl's _unwrap_model_for_generation can call
+    # gradient_checkpointing_enable() on the wrapper without being rejected.
+    supports_gradient_checkpointing = True
 
 
 class MultiModalityCausalLM(MultiModalityPreTrainedModel):

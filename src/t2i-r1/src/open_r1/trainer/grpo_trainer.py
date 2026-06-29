@@ -442,7 +442,6 @@ class JanusT2IR1Trainer(Trainer):
 
             split_size = 32
             for jj in range(0, inputs_embeds_img.shape[0], split_size):
-                print(f"Generating image {jj}")
                 start = jj
                 end = min(jj + split_size, inputs_embeds_img.shape[0])
                 generated_tokens = torch.zeros(((end-start)//2, self.image_token_num_per_image), dtype=torch.int64).cuda()
@@ -531,13 +530,16 @@ class JanusT2IR1Trainer(Trainer):
         total_generated_tokens_img = total_generated_tokens_img.detach()
 
         # Generate the image
-        with unwrap_model_for_generation(model.module.gen_vision_model, self.accelerator) as unwrapped_model:
-            dec = unwrapped_model.decode_code(total_generated_tokens_img.to(dtype=torch.int), shape=[total_generated_tokens_img.shape[0], 8, self.img_size//self.patch_size, self.img_size//self.patch_size])
-            dec = dec.to(torch.float32).cpu().numpy().transpose(0, 2, 3, 1)
-            dec = np.clip((dec + 1) / 2 * 255, 0, 255)
-            visual_img = np.zeros((total_generated_tokens_img.shape[0], self.img_size, self.img_size, 3), dtype=np.uint8)
-            visual_img[:, :, :] = dec
-            images = [Image.fromarray(visual_img[idx]) for idx in range(visual_img.shape[0])]
+        # gen_vision_model is a plain nn.Module (VQModel), not a PreTrainedModel,
+        # so trl's unwrap_model_for_generation cannot wrap it (no `is_gradient_checkpointing`).
+        # It's frozen anyway and runs inference-only, so just call decode_code directly.
+        gen_vision_model = model.module.gen_vision_model
+        dec = gen_vision_model.decode_code(total_generated_tokens_img.to(dtype=torch.int), shape=[total_generated_tokens_img.shape[0], 8, self.img_size//self.patch_size, self.img_size//self.patch_size])
+        dec = dec.to(torch.float32).cpu().numpy().transpose(0, 2, 3, 1)
+        dec = np.clip((dec + 1) / 2 * 255, 0, 255)
+        visual_img = np.zeros((total_generated_tokens_img.shape[0], self.img_size, self.img_size, 3), dtype=np.uint8)
+        visual_img[:, :, :] = dec
+        images = [Image.fromarray(visual_img[idx]) for idx in range(visual_img.shape[0])]
 
         # Compute the rewards
         prompts = [input["raw_prompt"] for input in inputs for _ in range(self.num_generations) for __ in range(self.new_generations_image)]
@@ -577,6 +579,20 @@ class JanusT2IR1Trainer(Trainer):
         std_grouped_rewards = std_grouped_rewards.repeat_interleave(self.num_generations * self.new_generations_image, dim=0)
         advantages = (rewards - mean_grouped_rewards) / (std_grouped_rewards + 1e-4)
 
+        # ── (8.2) advantage sanity check：归一化后理论上 mean≈0、std≈1；abs_max 看离群组 ──
+        adv_g = self.accelerator.gather_for_metrics(advantages)
+        self._metrics["advantage/mean"].append(adv_g.mean().item())
+        self._metrics["advantage/std"].append(adv_g.std().item())
+        self._metrics["advantage/abs_max"].append(adv_g.abs().max().item())
+
+        # ── (8.3) group reward std 极值：min→0 说明该 prompt 一组 candidate 全同分（无信号）──
+        group_std_per_prompt = rewards.view(
+            -1, self.num_generations * self.new_generations_image
+        ).std(dim=1)
+        group_std_g = self.accelerator.gather_for_metrics(group_std_per_prompt)
+        self._metrics["reward_std_min"].append(group_std_g.min().item())
+        self._metrics["reward_std_max"].append(group_std_g.max().item())
+
         torch.set_grad_enabled(True)
 
         # Calculate the loss together for semantic-cot and token-cot
@@ -606,6 +622,14 @@ class JanusT2IR1Trainer(Trainer):
 
         completion_length = self.accelerator.gather_for_metrics(loss_dict['semantic-cot']['completion_mask'].sum(1)).float().mean().item()
         self._metrics["completion_length"].append(completion_length)
+
+        # ── (8.4) completion 截断率：仅在打到 max_completion_length 时才算真截断；
+        # 注意 batch 内 generate 会 pad 到 batch 最长样本，所以不能用 mask.sum>=mask.size(1) 判断。
+        sem_mask = loss_dict['semantic-cot']['completion_mask']
+        truncated = (sem_mask.sum(dim=1) >= self.max_completion_length).float()
+        self._metrics["completion_trunc_rate"].append(
+            self.accelerator.gather_for_metrics(truncated).mean().item()
+        )
 
         reward_per_func = self.accelerator.gather_for_metrics(rewards_per_func).mean(0)
         for i, reward_func in enumerate(self.reward_funcs):
