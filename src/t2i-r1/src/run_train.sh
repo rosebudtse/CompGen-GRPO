@@ -126,10 +126,8 @@ fi
 PYTHONPATH="$SCRIPT_DIR":$PYTHONPATH \
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" \
 torchrun --nproc_per_node="${NPROC:-1}" \
+--standalone \
 --nnodes="1" \
---node_rank="0" \
---master_addr="127.0.0.1" \
---master_port="12345" \
 open_r1/grpo.py \
 --use_vllm=false \
 --deepspeed "../configs/zero2.json" \
@@ -152,8 +150,9 @@ open_r1/grpo.py \
 --attn_implementation sdpa \
 --max_steps "${MAX_STEPS:-1600}" \
 --run_name "$EXP_NAME" \
---save_steps 400 \
---save_total_limit 2 \
+--save_steps 200 \
+--save_total_limit 5 \
+--save_only_model=true \
 --new_generations_image 1 \
 --image_token_num_per_image 576 \
 --cfg_weight 5 \

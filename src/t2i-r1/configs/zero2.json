@@ -18,6 +18,6 @@
   "gradient_accumulation_steps": "auto",
   "wall_clock_breakdown": false,
   "checkpoint": {
-    "save_optimizer_states": true
+    "save_optimizer_states": false
   }
 }

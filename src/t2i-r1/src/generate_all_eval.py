@@ -1,14 +1,21 @@
 """
 Usage:
+    # 单卡
     python generate_all_eval.py \
-        --model_path outputs/train_main/checkpoint-2000 \
-        --dataset_dir /root/autodl-tmp/T2I-CompBench/examples/dataset \
-        --save_root /root/autodl-tmp/eval_results/finetuned \
+        --model_path outputs/train_g8_1k6_full/checkpoint-800 \
+        --save_root /mlx_devbox/users/xiezifan/playground/CompGen-GRPO/eval_results/finetuned \
         --num_generation 10 \
         --skip_existing
+
+    # 多卡数据并行（推荐用 run_generate.sh 包装）
+    torchrun --nproc_per_node=2 generate_all_eval.py \
+        --model_path outputs/train_g8_1k6_full/checkpoint-800 \
+        --save_root .../eval_results/finetuned \
+        --num_generation 10 --skip_existing
 """
 
 import torch
+import torch.distributed as dist
 import numpy as np
 import os
 import argparse
@@ -136,29 +143,56 @@ def generate_images_for_prompt(
     return dec
 
 
-def run_category(mmgpt, vl_chat_processor, cot_prompt, cat_name, prompt_file, save_dir, args, overall_bar):
+def run_category(mmgpt, vl_chat_processor, cot_prompt, cat_name, prompt_file, save_dir, args, overall_bar,
+                 rank=0, world_size=1):
     os.makedirs(save_dir, exist_ok=True)
     with open(prompt_file, 'r') as f:
         prompt_list = [line.strip() for line in f if line.strip()]
 
+    # Shard prompts across ranks: rank r handles prompts[r::world_size]
+    my_prompts = prompt_list[rank::world_size]
+
     if args.skip_existing:
-        remaining = [p for p in prompt_list
-                     if not os.path.exists(os.path.join(save_dir, f"{p}_{0:06d}.png"))]
-        skipped = len(prompt_list) - len(remaining)
+        # 完整 = N 张图都在；partial 视为未完成，清掉残图重新生
+        def is_complete(p):
+            return all(
+                os.path.exists(os.path.join(save_dir, f"{p}_{i:06d}.png"))
+                for i in range(args.num_generation)
+            )
+
+        remaining = []
+        partial = 0
+        for p in my_prompts:
+            if is_complete(p):
+                continue
+            # 不完整：若有任何残图，先清掉，避免下次再被误判 / 残留干扰
+            had_any = False
+            for i in range(args.num_generation):
+                fpath = os.path.join(save_dir, f"{p}_{i:06d}.png")
+                if os.path.exists(fpath):
+                    os.remove(fpath)
+                    had_any = True
+            if had_any:
+                partial += 1
+            remaining.append(p)
+        skipped = len(my_prompts) - len(remaining)
         if skipped:
-            tqdm.write(f"  Skipping {skipped} already-generated prompts")
+            tqdm.write(f"  [rank{rank}] Skipping {skipped} complete prompts")
+        if partial:
+            tqdm.write(f"  [rank{rank}] Cleaned & re-queued {partial} partial prompts")
     else:
-        remaining = prompt_list
+        remaining = my_prompts
         skipped = 0
 
     cat_bar = tqdm(
         remaining,
-        desc=f"  {cat_name:12s}",
+        desc=f"  [r{rank}] {cat_name:12s}",
         unit="prompt",
         leave=True,
         dynamic_ncols=True,
         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
-        position=1,
+        position=1 + rank,
+        disable=(rank != 0 and world_size > 1),  # 只 rank0 显示进度
     )
 
     success = skipped
@@ -179,29 +213,32 @@ def run_category(mmgpt, vl_chat_processor, cot_prompt, cat_name, prompt_file, sa
             success += 1
         except Exception as e:
             errors += 1
-            tqdm.write(f"  [ERROR] {prompt_text}: {e}")
+            tqdm.write(f"  [rank{rank}][ERROR] {prompt_text}: {e}")
 
-        overall_bar.update(1)
+        if rank == 0:
+            overall_bar.update(world_size)  # 估算全局进度
 
     cat_bar.close()
     elapsed = time.time() - t0
-    tqdm.write(
-        f"  ✅ {cat_name} DONE: {success}/{len(prompt_list)} prompts, "
-        f"{success * args.num_generation} images, {errors} errors, {elapsed:.0f}s"
-    )
+    if rank == 0:
+        tqdm.write(
+            f"  ✅ {cat_name} rank0 DONE: {success}/{len(my_prompts)} prompts, "
+            f"{success * args.num_generation} images, {errors} errors, {elapsed:.0f}s "
+            f"(total prompts in category: {len(prompt_list)})"
+        )
     return success, errors
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str,
-                        default="/root/autodl-tmp/T2I-R1/src/t2i-r1/src/outputs/train_main/checkpoint-2000")
+                        default="/mlx_devbox/users/xiezifan/playground/CompGen-GRPO/src/t2i-r1/src/outputs/train_g8_1k6_full/checkpoint-800")
     parser.add_argument("--dataset_dir", type=str,
-                        default="/root/autodl-tmp/T2I-CompBench/examples/dataset")
+                        default="/mlx_devbox/users/xiezifan/playground/T2I-CompBench/examples/dataset")
     parser.add_argument("--save_root", type=str,
-                        default="/root/autodl-tmp/eval_results/finetuned")
+                        default="/mlx_devbox/users/xiezifan/playground/CompGen-GRPO/eval_results/finetuned")
     parser.add_argument("--reasoning_prompt_path", type=str,
-                        default="/root/autodl-tmp/T2I-R1/data/prompt/reasoning_prompt.txt")
+                        default="/mlx_devbox/users/xiezifan/playground/CompGen-GRPO/data/prompt/reasoning_prompt.txt")
     parser.add_argument("--num_generation", type=int, default=10)
     parser.add_argument("--cfg_weight", type=float, default=5.0)
     parser.add_argument("--seed", type=int, default=42)
@@ -210,17 +247,34 @@ def main():
                         default=["color", "shape", "texture", "spatial", "non_spatial", "complex"])
     args = parser.parse_args()
 
-    seed_all(args.seed)
+    # ── DDP init（torchrun 设置 RANK/WORLD_SIZE/LOCAL_RANK）────────────────────
+    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+        local_rank = int(os.environ.get("LOCAL_RANK", rank))
+        torch.cuda.set_device(local_rank)
+        if not dist.is_initialized():
+            dist.init_process_group(backend="nccl")
+    else:
+        rank, world_size, local_rank = 0, 1, 0
+        torch.cuda.set_device(0)
 
-    print(f"\n{'='*60}")
-    print(f"Model : {args.model_path}")
-    print(f"Output: {args.save_root}")
-    print(f"{'='*60}")
+    # 不同 rank 用不同 seed，避免每个 rank 采样路径完全一致
+    seed_all(args.seed + rank)
+
+    if rank == 0:
+        print(f"\n{'='*60}")
+        print(f"Model : {args.model_path}")
+        print(f"Output: {args.save_root}")
+        print(f"World size: {world_size} (this rank={rank}, local_rank={local_rank})")
+        print(f"{'='*60}")
+
     vl_chat_processor = VLChatProcessor.from_pretrained(args.model_path)
     vl_gpt = AutoModelForCausalLM.from_pretrained(
         args.model_path, trust_remote_code=True
     ).to(torch.bfloat16).cuda().eval()
-    print("✅ Model loaded.\n")
+    if rank == 0:
+        print("✅ Model loaded.\n")
 
     with open(args.reasoning_prompt_path, 'r') as f:
         cot_prompt = f.read().strip()
@@ -228,20 +282,35 @@ def main():
     selected = [(n, f) for n, f in CATEGORIES if n in args.categories]
 
     total_prompts = 0
+    already_done = 0   # 已完整生成的 prompt 数（N 张全在）；partial 不计
     for cat_name, val_file in selected:
         with open(os.path.join(args.dataset_dir, val_file)) as f:
-            total_prompts += sum(1 for line in f if line.strip())
+            prompts_in_cat = [line.strip() for line in f if line.strip()]
+        total_prompts += len(prompts_in_cat)
+        save_dir = os.path.join(args.save_root, cat_name, "samples")
+        if args.skip_existing and os.path.isdir(save_dir):
+            for p in prompts_in_cat:
+                if all(
+                    os.path.exists(os.path.join(save_dir, f"{p}_{i:06d}.png"))
+                    for i in range(args.num_generation)
+                ):
+                    already_done += 1
 
-    print(f"Categories   : {[n for n, _ in selected]}")
-    print(f"Total prompts: {total_prompts} x {args.num_generation} = {total_prompts * args.num_generation} images\n")
+    if rank == 0:
+        print(f"Categories   : {[n for n, _ in selected]}")
+        print(f"Total prompts: {total_prompts} x {args.num_generation} = {total_prompts * args.num_generation} images")
+        print(f"Already done : {already_done} prompts (will be skipped)")
+        print(f"Sharded across {world_size} GPU(s): ~{total_prompts // world_size} prompts/GPU\n")
 
     overall_bar = tqdm(
         total=total_prompts,
+        initial=already_done,
         desc="Overall   ",
         unit="prompt",
         position=0,
         dynamic_ncols=True,
         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+        disable=(rank != 0),
     )
 
     t_start = time.time()
@@ -250,26 +319,35 @@ def main():
     for i, (cat_name, val_file) in enumerate(selected):
         prompt_file = os.path.join(args.dataset_dir, val_file)
         save_dir = os.path.join(args.save_root, cat_name, "samples")
-        tqdm.write(f"\n[{i+1}/{len(selected)}] ── {cat_name.upper()} ── save → {save_dir}")
+        if rank == 0:
+            tqdm.write(f"\n[{i+1}/{len(selected)}] ── {cat_name.upper()} ── save → {save_dir}")
         s, e = run_category(
             vl_gpt, vl_chat_processor, cot_prompt,
-            cat_name, prompt_file, save_dir, args, overall_bar
+            cat_name, prompt_file, save_dir, args, overall_bar,
+            rank=rank, world_size=world_size,
         )
         all_success += s
         all_errors += e
+        # 同步各 rank 完成同一 category 再进下一类，避免文件计数错位
+        if world_size > 1:
+            dist.barrier()
 
     overall_bar.close()
     total_elapsed = time.time() - t_start
 
-    print(f"\n{'='*60}")
-    print(f"ALL DONE  {total_elapsed/3600:.1f}h total")
-    print(f"  Success : {all_success} prompts / Errors: {all_errors}")
-    print(f"{'='*60}")
-    print("\nImage counts per category:")
-    for cat_name, _ in selected:
-        d = os.path.join(args.save_root, cat_name, "samples")
-        n = len([f for f in os.listdir(d) if f.endswith('.png')]) if os.path.exists(d) else 0
-        print(f"  {cat_name:12s}: {n:5d} images")
+    if rank == 0:
+        print(f"\n{'='*60}")
+        print(f"ALL DONE  {total_elapsed/3600:.1f}h total")
+        print(f"  Success (rank0 only): {all_success} prompts / Errors: {all_errors}")
+        print(f"{'='*60}")
+        print("\nImage counts per category (across all ranks):")
+        for cat_name, _ in selected:
+            d = os.path.join(args.save_root, cat_name, "samples")
+            n = len([f for f in os.listdir(d) if f.endswith('.png')]) if os.path.exists(d) else 0
+            print(f"  {cat_name:12s}: {n:5d} images")
+
+    if world_size > 1 and dist.is_initialized():
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

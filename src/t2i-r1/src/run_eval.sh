@@ -9,8 +9,8 @@
 #   bash run_eval.sh --model both --task color        
 #   bash run_eval.sh --model baseline --task complex  
 
-BENCH_DIR="/root/autodl-tmp/T2I-CompBench"
-EVAL_ROOT="/root/autodl-tmp/eval_results"
+BENCH_DIR="/mlx_devbox/users/xiezifan/playground/T2I-CompBench"
+EVAL_ROOT="/mlx_devbox/users/xiezifan/playground/CompGen-GRPO/eval_results"
 
 MODEL="both"
 TASK="all"
@@ -22,6 +22,18 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
+
+# ── 把脚本所有 stdout/stderr 固化到 logs/eval_<model>_<task>_<时间戳>.log ──
+#    同时维护一个 eval_latest.log 软链方便 tail -f
+LOG_DIR="$EVAL_ROOT/logs"
+mkdir -p "$LOG_DIR"
+TS="$(date '+%Y%m%d_%H%M%S')"
+LOG_FILE="$LOG_DIR/eval_${MODEL}_${TASK}_${TS}.log"
+ln -sf "$(basename "$LOG_FILE")" "$LOG_DIR/eval_latest.log"
+exec > >(tee "$LOG_FILE") 2>&1
+
+echo "[run_eval.sh] LOG_FILE=$LOG_FILE"
+echo "[run_eval.sh] start at $(date '+%F %T')"
 
 echo ""
 echo "=============================================="
@@ -103,7 +115,7 @@ echo "=============================================="
 python3 - << 'PYEOF'
 import json, os
 
-EVAL_ROOT = "/root/autodl-tmp/eval_results"
+EVAL_ROOT = "/mlx_devbox/users/xiezifan/playground/CompGen-GRPO/eval_results"
 
 RESULT_PATHS = {
     "color":       "annotation_blip/vqa_result.json",
@@ -154,3 +166,5 @@ else:
     print(f"  {'Average':12s}  {'N/A':>10}  {'N/A':>10}  {'N/A':>8}")
 print()
 PYEOF
+
+echo "[run_eval.sh] finished at $(date '+%F %T') (exit=$?)"
