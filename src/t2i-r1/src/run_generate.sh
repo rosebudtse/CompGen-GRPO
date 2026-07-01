@@ -11,7 +11,8 @@
 #       --save_root /mlx_devbox/users/xiezifan/playground/CompGen-GRPO/eval_results/finetuned_step800
 #
 #   # 跑 baseline（原始 Janus-Pro-1B）
-#   bash run_generate.sh \
+#   CUDA_VISIBLE_DEVICES=4,5 bash run_generate.sh \
+#       --nproc 2 \
 #       --model_path /mlx_devbox/users/xiezifan/playground/CompGen-GRPO/src/t2i-r1/reward_weight/Janus-Pro-1B \
 #       --save_root /mlx_devbox/users/xiezifan/playground/CompGen-GRPO/eval_results/baseline
 

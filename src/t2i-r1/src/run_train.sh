@@ -125,6 +125,7 @@ fi
 
 PYTHONPATH="$SCRIPT_DIR":$PYTHONPATH \
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" \
+MASTER_PORT="${MASTER_PORT:-29500}" \
 torchrun --nproc_per_node="${NPROC:-1}" \
 --standalone \
 --nnodes="1" \
